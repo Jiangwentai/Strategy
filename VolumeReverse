@@ -1,0 +1,213 @@
+from vnpy.app.cta_strategy import (
+    CtaTemplate,
+    StopOrder,
+    TickData,
+    BarData,
+    TradeData,
+    OrderData,
+    BarGenerator,
+    ArrayManager,
+)
+import numpy as np
+import matplotlib.pyplot as plt
+# 翻转策略  既放量下跌 然后v形翻转
+class VolumeReverse(CtaTemplate):
+    author = "Lostssss"
+    pricelist=[]
+    p1list=[]
+    p2list=[]
+    difpercent=0.02
+    minindex=0
+    maxindex=0
+    trailingPercent=2.1
+    intra_trade_high=0
+    intra_trade_low=0
+    stdmulti=1
+    size=106
+    resultcount=[]
+    volumemuti=0.3
+    possize=1
+    posprice=0
+    rawpricelistforstd=[]
+    ratiolist=[]
+
+
+    parameters = ['volumemuti',
+                 'stdmulti',
+                 'difpercent',
+                  'size',
+                 'trailingPercent'
+                 ]
+
+
+    def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
+        """"""
+        super().__init__(cta_engine, strategy_name, vt_symbol, setting)
+
+        self.bg = BarGenerator(self.on_bar)
+        self.am = ArrayManager(size=self.size)
+    def on_bar(self, bar: BarData):
+        plt.ion()  #interactive mode on
+
+        self.rawpricelistforstd.append(bar.close_price)
+        if len(self.rawpricelistforstd)<2000:
+            return
+        else:
+            self.rawpricelistforstd.pop(0)
+        self.am.update_bar(bar)
+        if not self.am.inited:
+            return
+        self.cancel_all()
+        # ratio = np.std(self.rawpricelistforstd) / np.mean(self.rawpricelistforstd)
+        # file_name = 'D:\\write.txt'
+        #
+        # with open(file_name, 'a') as file_obj:
+        #     file_obj.write(str(ratio)+"\n")
+        if self.pos == 0:
+
+            self.possize=1
+            if len(self.resultcount)>=5:
+                if self.resultcount[-1]==-1 and self.resultcount[-2]==-1  :
+                    self.possize=2
+                if self.resultcount[-1]==1 and self.resultcount[-2]==1  :
+                    self.possize=0.5
+
+
+                # if self.resultcount[-1]==-1 and self.resultcount[-2]==-1 and self.resultcount[-3]==-1   :
+                #      self.possize=3
+
+
+            self.intra_trade_high = bar.high_price
+            self.intra_trade_low = bar.low_price
+            self.minindex=int(np.argmin(self.am.close))
+
+            if self.minindex<self.size*0.6 and self.minindex>self.size*0 and self.am.close[-1]>self.am.close[0]*(1-self.difpercent) \
+                    and self.am.close[-1]<self.am.close[0]*(1+self.difpercent) \
+                    and self.am.close[self.minindex]<self.am.close[-1]-self.stdmulti*np.std(self.am.close[:self.size]):
+
+                z = np.polyfit(range(self.minindex,self.size,1), self.am.close[self.minindex:self.size], 1)
+                uperlist=list(map(lambda x:z[0]*x+z[1]+bar.close_price*self.difpercent,range(self.minindex,self.size,1)))
+                lowerlist= list(map(lambda x:z[0]*x+z[1]-bar.close_price*self.difpercent,range(self.minindex,self.size,1)))
+
+                if (True not in list(map(lambda x,y:x>y,self.am.close[self.minindex:self.size],uperlist)))\
+                        and (True not in list(map(lambda x,y:x<y,self.am.close[self.minindex:self.size],lowerlist))) :
+                    self.maxindex = int(np.argmax(self.am.close[0:self.minindex]))
+
+                    if self.maxindex>5 :
+
+
+                        z2=np.polyfit(list(range(self.maxindex,self.minindex,1)),self.am.close[self.maxindex:self.minindex],1)
+                        uperlist2=list(map(lambda x:z2[0]*x+z2[1]+bar.close_price*self.difpercent,range(self.maxindex,self.minindex,1)))
+                        lowerlist2= list(map(lambda x:z2[0]*x+z2[1]-bar.close_price*self.difpercent,range(self.maxindex,self.minindex,1)))
+
+
+                        if (True not in list(map(lambda x, y: x > y, self.am.close[self.maxindex:self.minindex], uperlist2))) \
+                                and (True not in list(map(lambda x, y: x < y, self.am.close[self.maxindex:self.minindex], lowerlist2))):
+                            if np.sum(self.am.volume_array[self.maxindex:self.minindex])>self.volumemuti*np.sum(self.am.volume_array[self.minindex:]):
+                                    if z[0]>0.3 and z2[0]<-0.1:
+                                        self.buy(bar.close_price,self.possize)
+                                        self.posprice = bar.close_price
+
+                                        # print("buy signal")
+                                        #
+                                        # plt.plot(self.am.close)
+                                        # plt.show()
+
+            self.minindex=int(np.argmax(self.am.close))
+
+            if self.minindex<self.size*0.6 and self.minindex>self.size*0 and self.am.close[-1]>self.am.close[0]*(1-self.difpercent) \
+                    and self.am.close[-1]<self.am.close[0]*(1+self.difpercent) \
+                    and self.am.close[self.minindex]>self.am.close[-1]+self.stdmulti*np.std(self.am.close[:self.size]):
+
+                z = np.polyfit(range(self.minindex,self.size,1), self.am.close[self.minindex:self.size], 1)
+                uperlist=list(map(lambda x:z[0]*x+z[1]+bar.close_price*self.difpercent,range(self.minindex,self.size,1)))
+                lowerlist= list(map(lambda x:z[0]*x+z[1]-bar.close_price*self.difpercent,range(self.minindex,self.size,1)))
+                if (True not in list(map(lambda x,y:x>y,self.am.close[self.minindex:self.size],uperlist)))\
+                        and (True not in list(map(lambda x,y:x<y,self.am.close[self.minindex:self.size],lowerlist))) :
+                    self.maxindex = int(np.argmin(self.am.close[0:self.minindex]))
+
+                    if self.maxindex>5 :
+
+
+                        z2=np.polyfit(list(range(self.maxindex,self.minindex,1)),self.am.close[self.maxindex:self.minindex],1)
+                        uperlist2=list(map(lambda x:z2[0]*x+z2[1]+bar.close_price*self.difpercent,range(self.maxindex,self.minindex,1)))
+                        lowerlist2= list(map(lambda x:z2[0]*x+z2[1]-bar.close_price*self.difpercent,range(self.maxindex,self.minindex,1)))
+
+
+                        if (True not in list(map(lambda x, y: x > y, self.am.close[self.maxindex:self.minindex], uperlist2))) \
+                                and (True not in list(map(lambda x, y: x < y, self.am.close[self.maxindex:self.minindex], lowerlist2))):
+                            if np.sum(self.am.volume_array[self.maxindex:self.minindex])>self.volumemuti*np.sum(self.am.volume_array[self.minindex:]):
+                                if z[0] <-0.3 and z2[0] > 0.1:
+                                    self.short(bar.close_price,self.possize)
+                                    self.posprice = bar.close_price
+
+                                    # print("sell signal")
+                                    # plt.plot(self.am.close)
+                                    # plt.show()
+        # 持有空头仓位
+        if self.pos > 0:
+                self.intra_trade_high = max(self.intra_trade_high, bar.high_price)
+                self.intra_trade_low = bar.low_price
+                self.pricelist.append(bar.close_price)
+                ratio=np.std(self.rawpricelistforstd)/np.mean(self.rawpricelistforstd)
+                if ratio>0.004:
+
+                    self.trailingPercent=2.1
+                else:
+                    self.trailingPercent=3.1
+
+
+
+
+                long_stop = self.intra_trade_high * \
+                    (1 - self.trailingPercent / 100)
+                # plt.clf()
+
+                # plt.plot(self.pricelist,label='long')
+                # plt.plot(np.ones(len(self.pricelist))*long_stop)
+                # plt.title("long")
+                # plt.pause(0.001)
+                self.sell(long_stop, abs(self.pos), stop=True)
+
+
+        if self.pos <  0:
+                self.intra_trade_low = min(self.intra_trade_low, bar.low_price)
+                self.pricelist.append(bar.close_price)
+
+                self.intra_trade_high = bar.high_price
+
+                ratio = np.std(self.rawpricelistforstd) / np.mean(self.rawpricelistforstd)
+                if ratio > 0.004:
+
+                    self.trailingPercent = 1.9
+                else:
+                    self.trailingPercent = 3.5
+
+                short_stop = self.intra_trade_low * \
+                    (1 + self.trailingPercent / 100)
+                # plt.clf()
+                #
+                # plt.title("short")
+                # plt.plot(self.pricelist,label='short')
+                # plt.plot(np.ones(len(self.pricelist))*short_stop)
+                #
+                # plt.pause(0.001)
+                self.cover(short_stop, abs(self.pos), stop=True)
+        self.put_event()
+    def on_trade(self, trade: TradeData):
+#       如何计算出当次盈亏
+#         plt.clf()
+        if trade.offset.value=="平":
+            if trade.direction.value=="多":
+
+                if trade.price<self.posprice:
+                    self.resultcount.append(1)
+                else:
+                    self.resultcount.append(-1)
+            if trade.direction.value=="空":
+                if trade.price>self.posprice:
+                    self.resultcount.append(1)
+                else:
+                    self.resultcount.append(-1)
+
+            # self.pricelist=[]
